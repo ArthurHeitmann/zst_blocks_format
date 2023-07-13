@@ -18,6 +18,8 @@ Stream<Uint8List> stdinByteStream([int Function()? readByteSync]) async* {
       sizeBuffer[i] = byte;
     }
     int size = ByteData.view(sizeBuffer.buffer).getUint32(0, Endian.little);
+    if (size == 0xFFFFFFFF)
+      return;
     Uint8List data = Uint8List(size);
     for (int i = 0; i < size; i++) {
       int byte = readByteSync();
