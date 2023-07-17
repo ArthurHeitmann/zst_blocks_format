@@ -41,6 +41,12 @@ class ZstBlocksFile {
     if (pendingRows.isNotEmpty)
       await ZstBlock(pendingRows).write(file);
   }
+
+  static Future<void> writeBlocksStream(RandomAccessFileWrapper file, Stream<List<Uint8List>> blocksStream) async {
+    await for (var rows in blocksStream) {
+      await ZstBlock(rows).write(file);
+    }
+  }
 }
 
 /// struct ZstCompressedBlock {

@@ -1,71 +1,94 @@
 
-import "dart:convert";
+import "dart:async";
 import "dart:io";
 import "dart:typed_data";
+
+
+int _getUint32FromList(List<int> bytes) {
+  return ByteData.view(Uint8List.fromList(bytes).buffer).getUint32(0, Endian.little);
+}
 
 /// read in 4 bytes, convert to uint32
 /// read that many bytes, yield as Uint8List
 /// repeat
-Stream<Uint8List> stdinByteStream([int Function()? readByteSync]) async* {
-  readByteSync ??= stdin.readByteSync;
-  while (true) {
-    var t1 = DateTime.now();
-    Uint8List sizeBuffer = Uint8List(4);
-    for (int i = 0; i < 4; i++) {
-      int byte = readByteSync();
-      if (byte == -1)
-        return;
-      sizeBuffer[i] = byte;
+// Stream<Uint8List> stdinByteStream([int Function()? readByteSync]) async* {
+Stream<Uint8List> stdinByteStream([List<int>? pendingBytes]) {
+  pendingBytes ??= [];
+  StreamController<Uint8List> controller = StreamController<Uint8List>();
+  bool isReadingSize = true;
+  int? size;
+  stdin.listen((event) {
+    pendingBytes!.addAll(event);
+    while (pendingBytes.isNotEmpty) {
+      if (isReadingSize) {
+        if (pendingBytes.length < 4)
+          return;
+        size = _getUint32FromList(pendingBytes);
+        pendingBytes.removeRange(0, 4);
+        isReadingSize = false;
+      } else {
+        if (pendingBytes.length < size!)
+          return;
+        Uint8List data = Uint8List.fromList(pendingBytes.sublist(0, size!));
+        pendingBytes.removeRange(0, size!);
+        isReadingSize = true;
+        controller.add(data);
+      }
     }
-    int size = ByteData.view(sizeBuffer.buffer).getUint32(0, Endian.little);
-    if (size == 0xFFFFFFFF)
-      return;
-    Uint8List data = Uint8List(size);
-    for (int i = 0; i < size; i++) {
-      int byte = readByteSync();
-      if (byte == -1)
-        return;
-      data[i] = byte;
-    }
-    var t2 = DateTime.now();
-    print("Read block of size $size in ${t2.difference(t1).inMilliseconds}ms");
-    yield data;
-  }
+  }, onDone: () {
+    controller.close();
+  });
+
+  return controller.stream;
 }
 
-final testJsonRows = [
-  { "test": 123, "test2": "abc" },
-  { "hello": "world", "test": 456 },
-  { "test": [ "arrays" ], "and": { "objects": "too" } },
-  { "test": 789, "test2": "def" },
-  { "test": 101112, "test2": "ghi" }
-];
-final testJsonStringRows = testJsonRows
-  .map((row) => JsonEncoder.withIndent("\t").convert(row))
-  .toList();
-final testJsonByteRows = testJsonStringRows
-  .map((row) {
-    var data = utf8.encode(row);
-    var rowBytes = ByteData(4 + data.length);
-    rowBytes.setUint32(0, data.length, Endian.little);
-    rowBytes.buffer.asUint8List(4).setAll(0, data);
-    return rowBytes.buffer.asUint8List();
-  })
-  .toList();
-
-Stream<Uint8List> testJsonByteStream() async* {
-  int pos = 0;
-  int row = 0;
-  int readJsonByte() {
-    if (row >= testJsonByteRows.length)
-      return -1;
-    int byte = testJsonByteRows[row][pos];
-    pos++;
-    if (pos >= testJsonByteRows[row].length) {
-      pos = 0;
-      row++;
+/// read in uint32 for row count
+/// for each row:
+///   read in uint32 for row size
+///   read that many bytes, yield as Uint8List
+Stream<List<Uint8List>> stdinByteBlocksStream([int Function()? readByteSync]) {
+  List<int> pendingBytes = [];
+  StreamController<List<Uint8List>> controller = StreamController<List<Uint8List>>();
+  bool isReadingRowCount = true;
+  bool isReadingRowSize = true;
+  int? rowCount;
+  int? rowSize;
+  List<Uint8List> rows = [];
+  stdin.listen((event) {
+    pendingBytes.addAll(event);
+    while (pendingBytes.isNotEmpty) {
+      if (isReadingRowCount) {
+        if (pendingBytes.length < 4)
+          return;
+        rowCount = _getUint32FromList(pendingBytes);
+        pendingBytes.removeRange(0, 4);
+        isReadingRowCount = false;
+      } else {
+        if (isReadingRowSize) {
+          if (pendingBytes.length < 4)
+            return;
+          rowSize = _getUint32FromList(pendingBytes);
+          pendingBytes.removeRange(0, 4);
+          isReadingRowSize = false;
+        } else {
+          if (pendingBytes.length < rowSize!)
+            return;
+          Uint8List data = Uint8List.fromList(pendingBytes.sublist(0, rowSize!));
+          pendingBytes.removeRange(0, rowSize!);
+          isReadingRowSize = true;
+          rows.add(data);
+          if (rows.length == rowCount) {
+            controller.add(rows);
+            rows = [];
+            isReadingRowCount = true;
+          }
+        }
+      
+      }
     }
-    return byte;
-  }
-  yield* stdinByteStream(readJsonByte);
+  }, onDone: () {
+    controller.close();
+  });
+
+  return controller.stream;
 }

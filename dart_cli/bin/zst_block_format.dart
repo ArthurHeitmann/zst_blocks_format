@@ -13,11 +13,12 @@ void main(List<String> arguments) async {
   argParser.addCommand("decode");
   argParser.addCommand("encode");
   argParser.addOption("input", abbr: "i", help: "Input file (.zst_blocks))");
-  argParser.addFlag("stdin", abbr: "s", help: "Read from stdin (stream format: uint32 data_size, byte data[data_size])", defaultsTo: false);
+  argParser.addFlag("stdin", abbr: "s", help: "Read from stdin (stream format: uint32 data_size, byte data[data_size])", defaultsTo: false, negatable: false);
+  argParser.addFlag("stdin-as-blocks", abbr: "S", help: "Read from stdin (block format: uint32 count, (uint32 data_size, byte data[data_size])[count])", defaultsTo: false, negatable: false);
   argParser.addOption("output", abbr: "o", help: "Output file", mandatory: true);
-  argParser.addFlag("append", abbr: "a", help: "Append to output file", defaultsTo: false);
+  argParser.addFlag("append", abbr: "a", help: "Append to output file", defaultsTo: false, negatable: false);
   argParser.addOption("block-size", abbr: "b", help: "Block size", defaultsTo: "128");
-  argParser.addFlag("help", abbr: "h", help: "Show help", defaultsTo: false);
+  argParser.addFlag("help", abbr: "h", help: "Show help", defaultsTo: false, negatable: false);
   
   var args = argParser.parse(arguments);
   if (args["help"]) {
@@ -31,6 +32,7 @@ void main(List<String> arguments) async {
     args.command?.name == "encode",
     args["append"],
     args["stdin"],
+    args["stdin-as-blocks"],
     int.tryParse(args["block-size"]),
   );
 
@@ -61,7 +63,8 @@ void main(List<String> arguments) async {
   
   RandomAccessFile? inOpenFile;
   RandomAccessFile? outOpenFile;
-  Stream<Uint8List> inStream;
+  Stream<Uint8List>? inRowsStream;
+  Stream<List<Uint8List>>? inBlocksStream;
   try {
     if (options.inputFile != null) {
       var inFile = File(options.inputFile!);
@@ -70,18 +73,28 @@ void main(List<String> arguments) async {
         return;
       }
       inOpenFile = await inFile.open(mode: FileMode.read);
-      inStream = ZstBlocksFile.streamRows(RandomAccessFileWrapper(inOpenFile));
+      inRowsStream = ZstBlocksFile.streamRows(RandomAccessFileWrapper(inOpenFile));
+    } else if (options.stdinAsBlocks) {
+      inBlocksStream = stdinByteBlocksStream();
     } else {
-      inStream = stdinByteStream();
+      inRowsStream = stdinByteStream();
     }
 
     var outFile = File(options.outputFile!);
     var outDir = outFile.parent;
     await outDir.create(recursive: true);
     outOpenFile = await outFile.open(mode: options.append ? FileMode.append : FileMode.write);
+    var outFileWrapper = RandomAccessFileWrapper(outOpenFile);
+    if (options.append)
+      await outFileWrapper.setPosition(await outOpenFile.length());
 
     if (options.encode) {
-      await ZstBlocksFile.writeStream(RandomAccessFileWrapper(outOpenFile), inStream, options.blockSize!);
+      if (inRowsStream != null) {
+        await ZstBlocksFile.writeStream(outFileWrapper, inRowsStream, options.blockSize!);
+      } else if (inBlocksStream != null) {
+        await ZstBlocksFile.writeBlocksStream(outFileWrapper, inBlocksStream);
+      } else
+        throw Exception("No input stream");
     } else {
       await for (var row in ZstBlocksFile.streamRows(RandomAccessFileWrapper(inOpenFile!))) {
         await outOpenFile.writeFrom(row);
