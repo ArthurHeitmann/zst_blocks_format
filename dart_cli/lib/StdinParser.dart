@@ -8,6 +8,8 @@ int _getUint32FromList(List<int> bytes) {
   return ByteData.view(Uint8List.fromList(bytes).buffer).getUint32(0, Endian.little);
 }
 
+const _endFlag = 0xFFFFFFFF;
+
 /// read in 4 bytes, convert to uint32
 /// read that many bytes, yield as Uint8List
 /// repeat
@@ -24,6 +26,10 @@ Stream<Uint8List> stdinByteStream([List<int>? pendingBytes]) {
         if (pendingBytes.length < 4)
           return;
         size = _getUint32FromList(pendingBytes);
+        if (size == _endFlag) {
+          controller.close();
+          return;
+        }
         pendingBytes.removeRange(0, 4);
         isReadingSize = false;
       } else {
@@ -61,6 +67,10 @@ Stream<List<Uint8List>> stdinByteBlocksStream([int Function()? readByteSync]) {
         if (pendingBytes.length < 4)
           return;
         rowCount = _getUint32FromList(pendingBytes);
+        if (rowCount == _endFlag) {
+          controller.close();
+          return;
+        }
         pendingBytes.removeRange(0, 4);
         isReadingRowCount = false;
       } else {
