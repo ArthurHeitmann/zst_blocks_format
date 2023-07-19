@@ -5,14 +5,15 @@ import "dart:typed_data";
 import "package:args/args.dart";
 import "package:zst_block_format/CliArgs.dart";
 import "package:zst_block_format/RandomAccessFileWrapper.dart";
-import "package:zst_block_format/StdinParser.dart";
+import "package:zst_block_format/InputStreams.dart";
 import "package:zst_block_format/ZstBlocksFile.dart";
 
 void main(List<String> arguments) async {
   var argParser = ArgParser();
-  argParser.addCommand("decode");
   argParser.addCommand("encode");
-  argParser.addOption("input", abbr: "i", help: "Input file (.zst_blocks))");
+  argParser.addCommand("decode");
+  argParser.addOption("input", abbr: "i", help: "Input file");
+  argParser.addFlag("input-as-text", abbr: "t", help: "Read input file as text (one line = one row)", defaultsTo: false, negatable: false);
   argParser.addFlag("stdin", abbr: "s", help: "Read from stdin (stream format: uint32 data_size, byte data[data_size])", defaultsTo: false, negatable: false);
   argParser.addFlag("stdin-as-blocks", abbr: "S", help: "Read from stdin (block format: uint32 count, (uint32 data_size, byte data[data_size])[count])", defaultsTo: false, negatable: false);
   argParser.addOption("output", abbr: "o", help: "Output file", mandatory: true);
@@ -22,6 +23,10 @@ void main(List<String> arguments) async {
   
   var args = argParser.parse(arguments);
   if (args["help"]) {
+    print("Usage: zst_block_format <command> [options]");
+    print("Commands:");
+    print("  encode");
+    print("  decode");
     print(argParser.usage);
     return;
   }
@@ -32,33 +37,34 @@ void main(List<String> arguments) async {
     args.command?.name == "encode",
     args["append"],
     args["stdin"],
+    args["input-as-text"],
     args["stdin-as-blocks"],
     int.tryParse(args["block-size"]),
   );
 
   if (options.encode == options.decode) {
     print("Either --encode or --decode must be specified");
-    return;
+    exit(1);
   }
   if ((options.inputFile == null) ^ options.fromStdin) {
     print("Either --input or --stdin must be specified");
-    return;
+    exit(1);
   }
   if (options.outputFile == null) {
     print("Output file must be specified");
-    return;
+    exit(1);
   }
   if (options.blockSize == null) {
     print("Block size must be an integer");
-    return;
+    exit(1);
   }
   if (options.blockSize! <= 0) {
     print("Block size must be greater than 0");
-    return;
+    exit(1);
   }
   if (options.blockSize! > 0x7FFFFFFF) {
     print("Block size must be less than 0x7FFFFFFF");
-    return;
+    exit(1);
   }
   
   RandomAccessFile? inOpenFile;
@@ -70,10 +76,14 @@ void main(List<String> arguments) async {
       var inFile = File(options.inputFile!);
       if (!await inFile.exists()) {
         print("Input file does not exist");
-        return;
+        exit(1);
       }
-      inOpenFile = await inFile.open(mode: FileMode.read);
-      inRowsStream = ZstBlocksFile.streamRows(RandomAccessFileWrapper(inOpenFile));
+      if (options.inputAsText) {
+        inRowsStream = textFileLineStream(inFile.path);
+      } else {
+        inOpenFile = await inFile.open(mode: FileMode.read);
+        inRowsStream = ZstBlocksFile.streamRows(RandomAccessFileWrapper(inOpenFile));
+      }
     } else if (options.stdinAsBlocks) {
       inBlocksStream = stdinByteBlocksStream();
     } else {

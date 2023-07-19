@@ -1,5 +1,6 @@
 
 import "dart:async";
+import "dart:convert";
 import "dart:io";
 import "dart:typed_data";
 
@@ -101,4 +102,13 @@ Stream<List<Uint8List>> stdinByteBlocksStream([int Function()? readByteSync]) {
   });
 
   return controller.stream;
+}
+
+Stream<Uint8List> textFileLineStream(String filename) async* {
+  var lines = File(filename).openRead()
+    .transform(utf8.decoder)
+    .transform(LineSplitter());
+  await for (var line in lines) {
+    yield Uint8List.fromList(utf8.encode(line));
+  }
 }
