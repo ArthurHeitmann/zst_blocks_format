@@ -15,13 +15,13 @@ const _endFlag = 0xFFFFFFFF;
 /// read that many bytes, yield as Uint8List
 /// repeat
 // Stream<Uint8List> stdinByteStream([int Function()? readByteSync]) async* {
-Stream<Uint8List> stdinByteStream([List<int>? pendingBytes]) {
-  pendingBytes ??= [];
+Stream<Uint8List> stdinByteStream() {
+  List<int> pendingBytes = [];
   StreamController<Uint8List> controller = StreamController<Uint8List>();
   bool isReadingSize = true;
   int? size;
   stdin.listen((event) {
-    pendingBytes!.addAll(event);
+    pendingBytes.addAll(event);
     while (pendingBytes.isNotEmpty) {
       if (isReadingSize) {
         if (pendingBytes.length < 4)
@@ -53,7 +53,7 @@ Stream<Uint8List> stdinByteStream([List<int>? pendingBytes]) {
 /// for each row:
 ///   read in uint32 for row size
 ///   read that many bytes, yield as Uint8List
-Stream<List<Uint8List>> stdinByteBlocksStream([int Function()? readByteSync]) {
+Stream<List<Uint8List>> stdinByteBlocksStream() {
   List<int> pendingBytes = [];
   StreamController<List<Uint8List>> controller = StreamController<List<Uint8List>>();
   bool isReadingRowCount = true;
@@ -94,7 +94,6 @@ Stream<List<Uint8List>> stdinByteBlocksStream([int Function()? readByteSync]) {
             isReadingRowCount = true;
           }
         }
-      
       }
     }
   }, onDone: () {
