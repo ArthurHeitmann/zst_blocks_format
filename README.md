@@ -1,8 +1,8 @@
-# The zst_blocks format
+# Zst Blocks format
 
-The zst_blocks format is a simple format for storing rows of data in a compressed format. Compression is done using zstd.
+The zst blocks format is a simple format for storing rows of data in a compressed format. Compression is done using zstandard (zstd).
 
-If you're just interested in using the CLI or use python script, see [here](./python_cli/)
+If you're just interested in using the CLI or use python script, see [here](./python_cli/).
 
 ## Format
 
@@ -15,7 +15,7 @@ struct ZstCompressedBlock {
 };
 ```
 
-The decompressed data is a zstd compressed structure:
+The decompressed data has the following format:
 
 ```C
 struct ZstBlock {
