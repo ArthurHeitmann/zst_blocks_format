@@ -1,3 +1,5 @@
+// For usage with "010 Editor"
+
 LittleEndian();
 
 struct ZstCompressedBlock {

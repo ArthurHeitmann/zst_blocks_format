@@ -108,13 +108,13 @@ class ZstBlock:
 		
 		memoryView = memoryview(decompressedData)
 		count = _uint32Struct.unpack(memoryView[0:4])[0]
-		entries: list[ZstBlockEntryInfo] = [None] * count
+		rows: list[ZstRowInfo] = [None] * count
 		for i in range(count):
-			entries[i] = ZstBlockEntryInfo.read(memoryView, 4 + i * ZstBlockEntryInfo.structSize)
+			rows[i] = ZstRowInfo.read(memoryView, 4 + i * ZstRowInfo.structSize)
 		
-		dataStart = 4 + count * ZstBlockEntryInfo.structSize
-		for entry in entries:
-			yield decompressedData[dataStart + entry.offset : dataStart + entry.offset + entry.size]
+		dataStart = 4 + count * ZstRowInfo.structSize
+		for row in rows:
+			yield decompressedData[dataStart + row.offset : dataStart + row.offset + row.size]
 	
 	@classmethod
 	def readSpecificRows(cls, file: BinaryIO, rowIndices: Iterable[int]) -> list[memoryview]:
@@ -124,13 +124,13 @@ class ZstBlock:
 		
 		memoryView = memoryview(decompressedData)
 		count = _uint32Struct.unpack(memoryView[0:4])[0]
-		entries: list[ZstBlockEntryInfo] = [None] * count
+		rows: list[ZstRowInfo] = [None] * count
 		for i in range(count):
-			entries[i] = ZstBlockEntryInfo.read(memoryView, 4 + i * ZstBlockEntryInfo.structSize)
+			rows[i] = ZstRowInfo.read(memoryView, 4 + i * ZstRowInfo.structSize)
 		
-		dataStart = 4 + count * ZstBlockEntryInfo.structSize
+		dataStart = 4 + count * ZstRowInfo.structSize
 		return [
-			memoryView[dataStart + entries[rowIndex].offset : dataStart + entries[rowIndex].offset + entries[rowIndex].size]
+			memoryView[dataStart + rows[rowIndex].offset : dataStart + rows[rowIndex].offset + rows[rowIndex].size]
 			for rowIndex in rowIndices
 		]
 	
@@ -143,27 +143,27 @@ class ZstBlock:
 		memoryView = memoryview(decompressedData)
 		count = _uint32Struct.unpack(memoryView[0:4])[0]
 		if rowIndex >= count:
-			raise Exception("Entry index out of range")
-		row = ZstBlockEntryInfo.read(memoryView, 4 + rowIndex * ZstBlockEntryInfo.structSize)
+			raise Exception("Row index out of range")
+		row = ZstRowInfo.read(memoryView, 4 + rowIndex * ZstRowInfo.structSize)
 
-		dataStart = 4 + count * ZstBlockEntryInfo.structSize
+		dataStart = 4 + count * ZstRowInfo.structSize
 		return memoryView[dataStart + row.offset : dataStart + row.offset + row.size]
 
 	def write(self, file: BinaryIO, rowPositions: list[RowPosition]|None = None, compressionLevel = _defaultCompressionLevel) -> None:
 		uncompressedSize = \
 			4 + \
-			len(self.rows) * ZstBlockEntryInfo.structSize + \
+			len(self.rows) * ZstRowInfo.structSize + \
 			sum(len(row) for row in self.rows)
 		uncompressedBytes = bytearray(uncompressedSize)
 		uncompressedBytes[0:4] = len(self.rows).to_bytes(4, _endian)
 		
-		dataOffset = 4 + len(self.rows) * ZstBlockEntryInfo.structSize
+		dataOffset = 4 + len(self.rows) * ZstRowInfo.structSize
 		blockOffset = file.tell()
 		currentDataLocalOffset = 0
 		for i in range(len(self.rows)):
 			row = self.rows[i]
-			entryInfo = ZstBlockEntryInfo(currentDataLocalOffset, len(row))
-			entryInfo.write(uncompressedBytes, 4 + i * ZstBlockEntryInfo.structSize)
+			rowInfo = ZstRowInfo(currentDataLocalOffset, len(row))
+			rowInfo.write(uncompressedBytes, 4 + i * ZstRowInfo.structSize)
 			uncompressedBytes[dataOffset + currentDataLocalOffset : dataOffset + currentDataLocalOffset + len(row)] = row
 			currentDataLocalOffset += len(row)
 			if rowPositions is not None:
@@ -188,7 +188,7 @@ class ZstBlock:
 		for i in range(count):
 			yield RowPosition(blockOffset, i)
 
-class ZstBlockEntryInfo:
+class ZstRowInfo:
 	structSize = 8
 	offset: int
 	size: int
@@ -198,9 +198,9 @@ class ZstBlockEntryInfo:
 		self.size = size
 
 	@staticmethod
-	def read(bytes: bytes, position: int) -> ZstBlockEntryInfo:
-		offset, size = _uint32X2Struct.unpack(bytes[position : position + ZstBlockEntryInfo.structSize])
-		return ZstBlockEntryInfo(offset, size)
+	def read(bytes: bytes, position: int) -> ZstRowInfo:
+		offset, size = _uint32X2Struct.unpack(bytes[position : position + ZstRowInfo.structSize])
+		return ZstRowInfo(offset, size)
 
 	def write(self, bytes: bytearray, position: int) -> None:
 		bytes[position + 0 : position + 4] = self.offset.to_bytes(4, _endian)

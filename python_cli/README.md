@@ -1,4 +1,9 @@
-# The zst_blocks format
+# The zst_blocks format with Python
+
+- [CLI usage](#cli-usage)
+- [Usage in Python](#usage-in-python)
+
+For information about the file format itself, see [here](../)
 
 ## CLI usage
 
