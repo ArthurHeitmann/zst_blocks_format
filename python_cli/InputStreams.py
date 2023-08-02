@@ -2,7 +2,7 @@
 import sys
 from typing import Iterable
 
-def _getUint32FromList(bytes: list[int]) -> int:
+def _getUint32FromList(bytes: bytes) -> int:
 	return int.from_bytes(bytes[:4], "little")
 
 _endFlag = 0xFFFFFFFF

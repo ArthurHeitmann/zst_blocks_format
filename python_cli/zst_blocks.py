@@ -1,6 +1,7 @@
 import argparse
 from dataclasses import dataclass
 import os
+import sys
 from typing import BinaryIO
 
 from ZstBlocksFile import ZstBlocksFile
@@ -14,6 +15,7 @@ class CliArgs:
 	encode: bool
 	append: bool
 	fromStdin: bool
+	toStdout: bool
 	inputAsText: bool
 	stdinAsBlocks: bool
 	separateLines: bool
@@ -24,12 +26,13 @@ def main():
 	parser.add_argument("command", choices=["encode", "decode"], help="Command to run")
 	parser.add_argument("-i", "--input", help="Input file")
 	parser.add_argument("-t", "--input-as-text", action="store_true", help="Read input file as text (one line = one row)")
-	parser.add_argument("-s", "--stdin", action="store_true", help="Read from stdin (stream format: uint32 data_size, byte data[data_size])")
-	parser.add_argument("-S", "--stdin-as-blocks", action="store_true", help="Read from stdin (block format: uint32 count, (uint32 data_size, byte data[data_size])[count])")
-	parser.add_argument("-o", "--output", help="Output file", required=True)
+	parser.add_argument("--stdin", action="store_true", help="Read from stdin (stream format: uint32 data_size, byte data[data_size])")
+	parser.add_argument("--stdin-as-blocks", action="store_true", help="Read from stdin (block format: uint32 count, (uint32 data_size, byte data[data_size])[count])")
+	parser.add_argument("-o", "--output", help="Output file")
+	parser.add_argument("--stdout", action="store_true", help="Write to stdout")
 	parser.add_argument("-a", "--append", action="store_true", help="Append to output file")
 	parser.add_argument("--no-line-separator", action="store_false", help="Separate lines in output file (only for decode)")
-	parser.add_argument("-b", "--block-size", type=int, default=128, help="Block size")
+	parser.add_argument("-b", "--block-size", type=int, default=256, help="Block size")
 
 	args = parser.parse_args()
 	options = CliArgs(
@@ -39,9 +42,10 @@ def main():
 		args.command == "encode",
 		args.append,
 		args.stdin,
+		args.stdout,
 		args.input_as_text,
 		args.stdin_as_blocks,
-		not args.no_line_separator,
+		args.no_line_separator,
 		args.block_size,
 	)
 
@@ -51,8 +55,8 @@ def main():
 	if (options.inputFile == None) ^ options.fromStdin:
 		print("Either --input or --stdin must be specified")
 		exit(1)
-	if options.outputFile == None:
-		print("Output file must be specified")
+	if options.outputFile == None and options.toStdout == None:
+		print("Either --output or --stdout must be specified")
 		exit(1)
 	if options.blockSize == None:
 		print("Block size must be an integer")
@@ -87,16 +91,20 @@ def main():
 		else:
 			inRowsStream = stdinByteStream()
 
-		outFile = open(options.outputFile, "ab" if options.append else "wb")
-		outOpenFile = outFile
+		if options.toStdout:
+			outOpenFile = open(sys.stdout.fileno(), "wb")
+		elif options.outputFile != None:
+			outOpenFile = open(options.outputFile, "ab" if options.append else "wb")
+		else:
+			raise Exception("No output file")
 		if options.append:
-			outFile.seek(outFile.tell())
+			outOpenFile.seek(outOpenFile.tell())
 
 		if options.encode:
 			if inRowsStream != None:
-				ZstBlocksFile.writeStream(outFile, inRowsStream, options.blockSize)
+				ZstBlocksFile.writeStream(outOpenFile, inRowsStream, options.blockSize)
 			elif inBlocksStream != None:
-				ZstBlocksFile.writeBlocksStream(outFile, inBlocksStream)
+				ZstBlocksFile.writeBlocksStream(outOpenFile, inBlocksStream)
 			else:
 				raise Exception("No input stream")
 		else:

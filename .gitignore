@@ -6,3 +6,4 @@
 *.ll
 *.zst_blocks
 *.pyc
+test*.py
