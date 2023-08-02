@@ -28,7 +28,7 @@ def main():
 	parser.add_argument("-S", "--stdin-as-blocks", action="store_true", help="Read from stdin (block format: uint32 count, (uint32 data_size, byte data[data_size])[count])")
 	parser.add_argument("-o", "--output", help="Output file", required=True)
 	parser.add_argument("-a", "--append", action="store_true", help="Append to output file")
-	parser.add_argument("--separate-lines", action="store_true", help="Separate lines in output file (only for decode)")
+	parser.add_argument("--no-line-separator", action="store_false", help="Separate lines in output file (only for decode)")
 	parser.add_argument("-b", "--block-size", type=int, default=128, help="Block size")
 
 	args = parser.parse_args()
@@ -41,7 +41,7 @@ def main():
 		args.stdin,
 		args.input_as_text,
 		args.stdin_as_blocks,
-		args.separate_lines,
+		not args.no_line_separator,
 		args.block_size,
 	)
 
@@ -75,9 +75,13 @@ def main():
 				exit(1)
 			if options.inputAsText:
 				inRowsStream = textFileLineStream(options.inputFile)
+			elif not options.inputFile.endswith(".zst_blocks"):
+				print("Input file must have .zst_blocks extension")
+				exit(1)
 			else:
 				inFile = open(options.inputFile, "rb")
 				inOpenFile = inFile
+				inRowsStream = ZstBlocksFile.streamRows(inFile)
 		elif options.stdinAsBlocks:
 			inBlocksStream = stdinByteBlocksStream()
 		else:
@@ -96,6 +100,8 @@ def main():
 			else:
 				raise Exception("No input stream")
 		else:
+			if inOpenFile is None:
+				raise Exception("No input file")
 			isFirst = True
 			for row in ZstBlocksFile.streamRows(inOpenFile):
 				if options.separateLines and not isFirst:

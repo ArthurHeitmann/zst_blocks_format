@@ -1,9 +1,17 @@
 from __future__ import annotations
+from dataclasses import dataclass
 import os
-from typing import BinaryIO, Iterable
+import time
+import struct
+from typing import BinaryIO, Callable, Iterable, Literal
 from zstandard import ZstdDecompressor, ZstdCompressor
 
-_endian = "little"
+_endian: Literal["little", "big"] = "little"
+
+_uint32Struct = struct.Struct("<I")
+_uint32X2Struct = struct.Struct("<II")
+
+_defaultCompressionLevel = 3
 
 class ZstBlocksFile:
 	blocks: list[ZstBlock]
@@ -12,36 +20,78 @@ class ZstBlocksFile:
 		self.blocks = blocks
 
 	@staticmethod
-	def readBlockRowAt(file: BinaryIO, blockPosition: int, rowIndex: int) -> bytes:
-		file.seek(blockPosition)
-		return ZstBlock.readRow(file, rowIndex)
-	
+	def readBlockRowAt(file: BinaryIO, rowPosition: RowPosition) -> bytes:
+		file.seek(rowPosition.blockOffset)
+		return ZstBlock.readRow(file, rowPosition.rowIndex)
+
 	@staticmethod
-	def streamRows(file: BinaryIO) -> bytes:
+	def readMultipleBlocks(file: BinaryIO,  rowPositions: list[RowPosition]) -> list[bytes]:
+		blockGroupsDict: dict[int, RowPositionGroup] = {}
+		for i, rowPosition in enumerate(rowPositions):
+			if rowPosition.blockOffset not in blockGroupsDict:
+				blockGroupsDict[rowPosition.blockOffset] = RowPositionGroup(rowPosition.blockOffset, [])
+			blockGroupsDict[rowPosition.blockOffset].rowIndices.append(RowIndex(rowPosition.rowIndex, i))
+		blockGroups = list(blockGroupsDict.values())
+		
+		rows: list = [None] * len(rowPositions)
+		for blockGroup in blockGroups:
+			file.seek(blockGroup.blockOffset)
+			blockRows = ZstBlock.readSpecificRows(file, map(lambda pair: pair.withinBlockIndex, blockGroup.rowIndices))
+			for originalPosition, row in zip(blockGroup.rowIndices, blockRows):
+				rows[originalPosition.originalRowIndex] = row
+		
+		return rows
+
+	@staticmethod
+	def streamRows(file: BinaryIO, blockIndexProgressCallback: Callable[[int], None]|None = None) -> Iterable[bytes]:
 		fileSize = os.path.getsize(file.name)
+		blockIndex = 0
 		while file.tell() < fileSize:
 			yield from ZstBlock.streamRows(file)
+			blockIndex += 1
+			if blockIndexProgressCallback is not None:
+				blockIndexProgressCallback(blockIndex)
 	
 	@staticmethod
-	def appendBlock(file: BinaryIO, rows: list[bytes]) -> None:
+	def appendBlock(file: BinaryIO, rows: list[bytes], compressionLevel = _defaultCompressionLevel) -> None:
 		file.seek(file.tell())
-		ZstBlock(rows).write(file)
+		ZstBlock(rows).write(file, compressionLevel=compressionLevel)
 	
 	@staticmethod
-	def writeStream(file: BinaryIO, rowStream: Iterable[bytes], blockSize: int) -> None:
+	def writeStream(file: BinaryIO, rowStream: Iterable[bytes], blockSize: int, rowPositions: list[RowPosition]|None = None, compressionLevel = _defaultCompressionLevel) -> None:
 		pendingRows = []
 		for row in rowStream:
 			pendingRows.append(row)
 			if len(pendingRows) >= blockSize:
-				ZstBlock(pendingRows).write(file)
+				ZstBlock(pendingRows).write(file, rowPositions, compressionLevel=compressionLevel)
 				pendingRows = []
 		if len(pendingRows) > 0:
-			ZstBlock(pendingRows).write(file)
+			ZstBlock(pendingRows).write(file, rowPositions, compressionLevel=compressionLevel)
 
 	@staticmethod
-	def writeBlocksStream(file: BinaryIO, blocksStream: Iterable[list[bytes]]) -> None:
+	def writeBlocksStream(file: BinaryIO, blocksStream: Iterable[list[bytes]], rowPositions: list[RowPosition]|None = None, compressionLevel = _defaultCompressionLevel) -> None:
 		for rows in blocksStream:
-			ZstBlock(rows).write(file)
+			ZstBlock(rows).write(file, rowPositions, compressionLevel=compressionLevel)
+	
+	@staticmethod
+	def countBlocks(file: BinaryIO) -> int:
+		fileSize = os.path.getsize(file.name)
+		blockCount = 0
+		initialPos = file.tell()
+		pos = initialPos
+		while pos < fileSize:
+			blockCount += 1
+			blockSize = _uint32Struct.unpack(file.read(4))[0]
+			pos += 4 + blockSize
+			file.seek(pos)
+		file.seek(initialPos)
+		return blockCount
+	
+	@staticmethod
+	def generateRowPositions(file: BinaryIO) -> Iterable[RowPosition]:
+		fileSize = os.path.getsize(file.name)
+		while file.tell() < fileSize:
+			yield from ZstBlock.generateRowPositions(file)
 	
 
 class ZstBlock:
@@ -50,44 +100,56 @@ class ZstBlock:
 	def __init__(self, rows: list[bytes]):
 		self.rows = rows
 
-	@staticmethod
-	def fromStream(stream: Iterable[bytes]) -> ZstBlock:
-		return ZstBlock(list(stream))
-
 	@classmethod
-	def streamRows(cls, file: BinaryIO) -> bytes:
-		blockSize = int.from_bytes(file.read(4), _endian)
-		compressedData = file.read(blockSize)
-		stream = ZstdDecompressor().stream_reader(compressedData)
-		decompressedData = stream.read()
-		stream.close()
-		bytes = bytearray(decompressedData)
+	def streamRows(cls, file: BinaryIO) -> Iterable[bytes]:
+		compressedSize = _uint32Struct.unpack(file.read(4))[0]
+		compressedData = file.read(compressedSize)
+		decompressedData = ZstdDecompressor().decompress(compressedData)
 		
-		count = int.from_bytes(bytes[0:4], _endian)
-		entries = [ZstBlockEntryInfo.read(bytes, 4 + i * ZstBlockEntryInfo.structSize) for i in range(count)]
+		memoryView = memoryview(decompressedData)
+		count = _uint32Struct.unpack(memoryView[0:4])[0]
+		entries: list[ZstBlockEntryInfo] = [None] * count
+		for i in range(count):
+			entries[i] = ZstBlockEntryInfo.read(memoryView, 4 + i * ZstBlockEntryInfo.structSize)
 		
 		dataStart = 4 + count * ZstBlockEntryInfo.structSize
 		for entry in entries:
-			yield bytes[dataStart + entry.offset : dataStart + entry.offset + entry.size]
+			yield decompressedData[dataStart + entry.offset : dataStart + entry.offset + entry.size]
 	
 	@classmethod
-	def readRow(cls, file: BinaryIO, rowIndex: int) -> bytes:
-		blockSize = int.from_bytes(file.read(4), _endian)
-		compressedData = file.read(blockSize)
-		stream = ZstdDecompressor().stream_reader(compressedData)
-		decompressedData = stream.read()
-		stream.close()
-		bytes = bytearray(decompressedData)
+	def readSpecificRows(cls, file: BinaryIO, rowIndices: Iterable[int]) -> list[memoryview]:
+		compressedSize = _uint32Struct.unpack(file.read(4))[0]
+		compressedData = file.read(compressedSize)
+		decompressedData = ZstdDecompressor().decompress(compressedData)
 		
-		count = int.from_bytes(bytes[0:4], _endian)
+		memoryView = memoryview(decompressedData)
+		count = _uint32Struct.unpack(memoryView[0:4])[0]
+		entries: list[ZstBlockEntryInfo] = [None] * count
+		for i in range(count):
+			entries[i] = ZstBlockEntryInfo.read(memoryView, 4 + i * ZstBlockEntryInfo.structSize)
+		
+		dataStart = 4 + count * ZstBlockEntryInfo.structSize
+		return [
+			memoryView[dataStart + entries[rowIndex].offset : dataStart + entries[rowIndex].offset + entries[rowIndex].size]
+			for rowIndex in rowIndices
+		]
+	
+	@classmethod
+	def readRow(cls, file: BinaryIO, rowIndex: int) -> memoryview:
+		compressedSize = _uint32Struct.unpack(file.read(4))[0]
+		compressedData = file.read(compressedSize)
+		decompressedData = ZstdDecompressor().decompress(compressedData)
+		
+		memoryView = memoryview(decompressedData)
+		count = _uint32Struct.unpack(memoryView[0:4])[0]
 		if rowIndex >= count:
 			raise Exception("Entry index out of range")
-		row = ZstBlockEntryInfo.read(bytes, 4 + rowIndex * ZstBlockEntryInfo.structSize)
+		row = ZstBlockEntryInfo.read(memoryView, 4 + rowIndex * ZstBlockEntryInfo.structSize)
 
 		dataStart = 4 + count * ZstBlockEntryInfo.structSize
-		return bytes[dataStart + row.offset : dataStart + row.offset + row.size]
+		return memoryView[dataStart + row.offset : dataStart + row.offset + row.size]
 
-	def write(self, file: BinaryIO) -> None:
+	def write(self, file: BinaryIO, rowPositions: list[RowPosition]|None = None, compressionLevel = _defaultCompressionLevel) -> None:
 		uncompressedSize = \
 			4 + \
 			len(self.rows) * ZstBlockEntryInfo.structSize + \
@@ -96,6 +158,7 @@ class ZstBlock:
 		uncompressedBytes[0:4] = len(self.rows).to_bytes(4, _endian)
 		
 		dataOffset = 4 + len(self.rows) * ZstBlockEntryInfo.structSize
+		blockOffset = file.tell()
 		currentDataLocalOffset = 0
 		for i in range(len(self.rows)):
 			row = self.rows[i]
@@ -103,13 +166,27 @@ class ZstBlock:
 			entryInfo.write(uncompressedBytes, 4 + i * ZstBlockEntryInfo.structSize)
 			uncompressedBytes[dataOffset + currentDataLocalOffset : dataOffset + currentDataLocalOffset + len(row)] = row
 			currentDataLocalOffset += len(row)
+			if rowPositions is not None:
+				rowPositions.append(RowPosition(blockOffset, i))
 		uncompressedData = bytes(uncompressedBytes)
-		compressedData = ZstdCompressor().compress(uncompressedData)
+		compressedData = ZstdCompressor(compressionLevel).compress(uncompressedData)
 		compressedSize = len(compressedData)
 		blockBytes = bytearray(4 + compressedSize)
 		blockBytes[0:4] = compressedSize.to_bytes(4, _endian)
 		blockBytes[4:4+compressedSize] = compressedData
 		file.write(blockBytes)
+
+	@staticmethod
+	def generateRowPositions(file: BinaryIO) -> Iterable[RowPosition]:
+		blockOffset = file.tell()
+		compressedSize = _uint32Struct.unpack(file.read(4))[0]
+		compressedData = file.read(compressedSize)
+		decompressedData = ZstdDecompressor().decompress(compressedData)
+		
+		memoryView = memoryview(decompressedData)
+		count = _uint32Struct.unpack(memoryView[0:4])[0]
+		for i in range(count):
+			yield RowPosition(blockOffset, i)
 
 class ZstBlockEntryInfo:
 	structSize = 8
@@ -121,11 +198,25 @@ class ZstBlockEntryInfo:
 		self.size = size
 
 	@staticmethod
-	def read(bytes: bytearray, position: int) -> ZstBlockEntryInfo:
-		offset = int.from_bytes(bytes[position + 0 : position + 4], _endian)
-		size = int.from_bytes(bytes[position + 4 : position + 8], _endian)
+	def read(bytes: bytes, position: int) -> ZstBlockEntryInfo:
+		offset, size = _uint32X2Struct.unpack(bytes[position : position + ZstBlockEntryInfo.structSize])
 		return ZstBlockEntryInfo(offset, size)
 
 	def write(self, bytes: bytearray, position: int) -> None:
 		bytes[position + 0 : position + 4] = self.offset.to_bytes(4, _endian)
 		bytes[position + 4 : position + 8] = self.size.to_bytes(4, _endian)
+
+@dataclass
+class RowPosition:
+	blockOffset: int
+	rowIndex: int
+
+@dataclass
+class RowIndex:
+	withinBlockIndex: int
+	originalRowIndex: int
+
+@dataclass
+class RowPositionGroup:
+	blockOffset: int
+	rowIndices: list[RowIndex]

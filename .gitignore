@@ -5,3 +5,4 @@
 *.exe
 *.ll
 *.zst_blocks
+*.pyc
