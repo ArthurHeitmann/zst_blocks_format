@@ -9,7 +9,7 @@ For information about the file format itself, see [here](../)
 
 #### Decompressing a .zst_blocks file
 
-```sh
+```bash
 python zst_blocks.py decode -i inFile.zst_blocks -o outFile.txt
 ```
 
@@ -17,13 +17,13 @@ By default each row is separated by a new line (LF) character. To disable that u
 
 #### Printing/writing a .zst_blocks file to stdout, line by line
 
-```sh
+```bash
 python zst_blocks.py decode -i inFile.zst_blocks --stdout
 ```
 
 #### Compressing a text file, line by line
 
-```sh
+```bash
 python zst_blocks.py encode -t -i inFile.txt -o outFile.zst_blocks
 ```
 
@@ -34,7 +34,7 @@ Text is encoded as utf-8.
 
 #### Converting a .zst_blocks file to a .zst file
 
-```sh
+```bash
 python toZst.py inFile.zst_blocks [outFile.zst]
 ```
 
@@ -44,7 +44,7 @@ Rows are separated by a new line character (LF).
 
 #### From a row stream
 
-```sh
+```bash
 python zst_blocks.py encode --stdin --output outFile.zst_blocks
 ```
 
@@ -60,7 +60,7 @@ If the `row_size` is 0xFFFFFFFF it indicates end of stream. It's optional but re
 
 #### From a block stream
 
-```sh
+```bash
 python zst_blocks.py encode --stdin --stdin-as-blocks --output outFile.zst_blocks
 ```
 
