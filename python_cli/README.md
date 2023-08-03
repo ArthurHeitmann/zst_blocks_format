@@ -83,9 +83,9 @@ If the `row_count` is 0xFFFFFFFF it indicates end of stream. It's optional but r
 from ZstBlocksFile import ZstBlocksFile
 
 with open(path, "rb") as f:
-		for row in ZstBlocksFile.streamRows(f):
-			# row is of type `bytes`
-			...
+	for row in ZstBlocksFile.streamRows(f):
+		# row is of type `bytes`
+		...
 ```
 
 #### Lookup a row from a known position

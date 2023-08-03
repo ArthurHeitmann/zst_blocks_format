@@ -117,7 +117,7 @@ class ZstBlock:
 			yield decompressedData[dataStart + row.offset : dataStart + row.offset + row.size]
 	
 	@classmethod
-	def readSpecificRows(cls, file: BinaryIO, rowIndices: Iterable[int]) -> list[memoryview]:
+	def readSpecificRows(cls, file: BinaryIO, rowIndices: Iterable[int]) -> list[bytes]:
 		compressedSize = _uint32Struct.unpack(file.read(4))[0]
 		compressedData = file.read(compressedSize)
 		decompressedData = ZstdDecompressor().decompress(compressedData)
@@ -130,12 +130,12 @@ class ZstBlock:
 		
 		dataStart = 4 + count * ZstRowInfo.structSize
 		return [
-			memoryView[dataStart + rows[rowIndex].offset : dataStart + rows[rowIndex].offset + rows[rowIndex].size]
+			decompressedData[dataStart + rows[rowIndex].offset : dataStart + rows[rowIndex].offset + rows[rowIndex].size]
 			for rowIndex in rowIndices
 		]
 	
 	@classmethod
-	def readRow(cls, file: BinaryIO, rowIndex: int) -> memoryview:
+	def readRow(cls, file: BinaryIO, rowIndex: int) -> bytes:
 		compressedSize = _uint32Struct.unpack(file.read(4))[0]
 		compressedData = file.read(compressedSize)
 		decompressedData = ZstdDecompressor().decompress(compressedData)
@@ -147,7 +147,7 @@ class ZstBlock:
 		row = ZstRowInfo.read(memoryView, 4 + rowIndex * ZstRowInfo.structSize)
 
 		dataStart = 4 + count * ZstRowInfo.structSize
-		return memoryView[dataStart + row.offset : dataStart + row.offset + row.size]
+		return decompressedData[dataStart + row.offset : dataStart + row.offset + row.size]
 
 	def write(self, file: BinaryIO, rowPositions: list[RowPosition]|None = None, compressionLevel = _defaultCompressionLevel) -> None:
 		uncompressedSize = \
