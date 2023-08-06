@@ -1,0 +1,23 @@
+{
+  "name": "js_lib",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@jgoz/esbuild-plugin-typecheck": "^3.0.3",
+    "esbuild": "0.18.18",
+    "typescript": "^5.1.6",
+    "zstd-codec": "^0.1.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.4.8"
+  }
+}
