@@ -26,7 +26,6 @@ export class ZstBlocksFile {
 
 		return blocks.flat();
 	}
-
 }
 
 class ZstBlock {
@@ -112,8 +111,8 @@ async function readUint32(file: fsp.FileHandle, offset: number): Promise<number>
 	return uint32ReadBuffer.readUInt32LE();
 }
 
-async function readBytes(file: fsp.FileHandle, offset: number, length: number): Promise<Uint8Array> {
-	const bytes = new Uint8Array(length);
+async function readBytes(file: fsp.FileHandle, offset: number, length: number): Promise<Buffer> {
+	const bytes = Buffer.alloc(length);
 	await file.read(bytes, 0, length, offset);
 	return bytes;
 }
