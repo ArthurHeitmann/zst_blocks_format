@@ -10,21 +10,33 @@ export class ZstBlocksFile {
 	}
 
 	static async readMultipleBlockRowsAt(file: fsp.FileHandle, positions: RowPosition[]): Promise<Uint8Array[]> {
-		const blockGroups: { [blockOffset: number]: RowPosition[] } = {};
+		const blockGroups: { [blockOffset: number]: RowPositionWithIndex[] } = {};
 		for (let i = 0; i < positions.length; i++) {
 			const position = positions[i];
 			if (!blockGroups[position.blockOffset])
 				blockGroups[position.blockOffset] = [];
-			blockGroups[position.blockOffset].push(position);
+			blockGroups[position.blockOffset].push({
+				...position,
+				originalIndex: i
+			});
 		}
 
-		const blocks: Uint8Array[][] = await Promise.all(Object.keys(blockGroups).map(async (blockOffsetStr) => {
+		const blockBatches: [number, Uint8Array][][] = await Promise.all(Object.keys(blockGroups).map(async (blockOffsetStr) => {
 			const blockOffset = parseInt(blockOffsetStr);
 			const blockPositions = blockGroups[blockOffset];
-			return await ZstBlock.readMultipleRowsAt(file, blockOffset, blockPositions);
+			const readRows = await ZstBlock.readMultipleRowsAt(file, blockOffset, blockPositions);
+			return readRows.map((row, i) => [blockPositions[i].originalIndex, row] as [number, Uint8Array]);
 		}));
 
-		return blocks.flat();
+		const blocks = blockBatches.flat();
+		const outBlocks = new Array<Uint8Array>(positions.length);
+		for (let i = 0; i < blocks.length; i++) {
+			const [originalIndex, block] = blocks[i];
+			outBlocks[originalIndex] = block;
+		}
+		if (outBlocks.some(block => !block))
+			throw new Error("Missing block");
+		return outBlocks;
 	}
 }
 
@@ -103,6 +115,9 @@ class ZstRowInfo {
 export interface RowPosition {
 	blockOffset: number;
 	rowIndex: number;
+}
+export interface RowPositionWithIndex extends RowPosition {
+	originalIndex: number;
 }
 
 async function readUint32(file: fsp.FileHandle, offset: number): Promise<number> {
