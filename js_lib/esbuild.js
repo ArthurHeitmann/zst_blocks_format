@@ -4,7 +4,9 @@ import { typecheckPlugin } from "@jgoz/esbuild-plugin-typecheck";
 const watch = process.argv.includes("--watch") || process.argv.includes("-w");
 
 const context = await esbuild.context({
-	entryPoints: ["src/zst_blocks.ts"],
+	entryPoints: [
+		"src/ZstBLocksFile.ts"
+	],
 	bundle: true,
 	sourcemap: true,
 	platform: "neutral",

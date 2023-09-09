@@ -34,6 +34,18 @@ Text is encoded as utf-8.
 
 #### Converting a .zst_blocks file to a .zst file
 
+**Using the zstd binary (significantly faster):**
+
+For this you need to have the `zstd`/`zstd.exe` binary downloaded.
+
+```bash
+python zst_blocks.py decode -i inFile.zst_blocks --stdout | zstd -o outFile.zst
+```
+
+**Using the `toZst.py` script (slower):**
+
+This is slower, but you don't need to download the `zstd` binary. Also you get a percentage progress indicator.
+
 ```bash
 python toZst.py inFile.zst_blocks [outFile.zst]
 ```
