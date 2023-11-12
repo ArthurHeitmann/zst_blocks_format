@@ -1,5 +1,5 @@
 import { promises as fsp } from "fs";
-import { zstCompress, zstDecompress } from "./zst";
+import { zstDecompress } from "./zst";
 
 
 const defaultCompressionLevel = 3;
@@ -68,8 +68,7 @@ class ZstBlock {
 	static async readMultipleRowsAt(file: fsp.FileHandle, blockOffset: number, positions: RowPosition[]): Promise<Uint8Array[]> {
 		const compressedSize = await readUint32(file, blockOffset);
 		const compressedData = await readBytes(file, blockOffset + 4, compressedSize);
-		const decompressedDataAr = await zstDecompress(compressedData);
-		const decompressedData = Buffer.from(decompressedDataAr.buffer);
+		const decompressedData = await zstDecompress(compressedData);
 
 		const rowCount = decompressedData.readUInt32LE(0);
 		const rowInfos: ZstRowInfo[] = new Array(rowCount);

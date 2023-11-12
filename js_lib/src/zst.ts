@@ -1,10 +1,12 @@
-import { compress, decompress } from '@mongodb-js/zstd';
+import { init, decompress } from'@bokuweb/zstd-wasm';
 
-
-export async function zstCompress(data: Buffer): Promise<Buffer> {
-	return compress(data);
-}
+let initComplete = false;
+const initCompletePromise = init().then(() => {
+	initComplete = true;
+});
 
 export async function zstDecompress(data: Buffer): Promise<Buffer> {
-	return decompress(data);
+	if (!initComplete)
+		await initCompletePromise;
+    return Buffer.from(decompress(data));
 }
