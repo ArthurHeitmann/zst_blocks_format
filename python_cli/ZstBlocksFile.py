@@ -51,6 +51,16 @@ class ZstBlocksFile:
 			blockIndex += 1
 			if blockIndexProgressCallback is not None:
 				blockIndexProgressCallback(blockIndex)
+
+	@staticmethod
+	def streamRowsWithPositions(file: BinaryIO, blockIndexProgressCallback: Callable[[int], None]|None = None) -> Iterable[tuple[bytes, RowPosition]]:
+		fileSize = os.path.getsize(file.name)
+		blockIndex = 0
+		while file.tell() < fileSize:
+			yield from ZstBlock.streamRowsWithPositions(file)
+			blockIndex += 1
+			if blockIndexProgressCallback is not None:
+				blockIndexProgressCallback(blockIndex)
 	
 	@staticmethod
 	def appendBlock(file: BinaryIO, rows: list[bytes], compressionLevel = _defaultCompressionLevel) -> None:
@@ -115,6 +125,26 @@ class ZstBlock:
 		dataStart = 4 + count * ZstRowInfo.structSize
 		for row in rows:
 			yield decompressedData[dataStart + row.offset : dataStart + row.offset + row.size]
+
+	@classmethod
+	def streamRowsWithPositions(cls, file: BinaryIO) -> Iterable[tuple[bytes, RowPosition]]:
+		filePos = file.tell()
+		compressedSize = _uint32Struct.unpack(file.read(4))[0]
+		compressedData = file.read(compressedSize)
+		decompressedData = ZstdDecompressor().decompress(compressedData)
+		
+		memoryView = memoryview(decompressedData)
+		count = _uint32Struct.unpack(memoryView[0:4])[0]
+		rows: list[ZstRowInfo] = [None] * count
+		for i in range(count):
+			rows[i] = ZstRowInfo.read(memoryView, 4 + i * ZstRowInfo.structSize)
+		
+		dataStart = 4 + count * ZstRowInfo.structSize
+		for i, row in enumerate(rows):
+			yield (
+				decompressedData[dataStart + row.offset : dataStart + row.offset + row.size],
+				RowPosition(filePos, i)
+			)
 	
 	@classmethod
 	def readSpecificRows(cls, file: BinaryIO, rowIndices: Iterable[int]) -> list[bytes]:
